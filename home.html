@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GDX Texture Packer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .main-content {
+            padding: 30px;
+        }
+        
+        .upload-zone {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 60px 20px;
+            text-align: center;
+            background: #f8f9ff;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 30px;
+        }
+        
+        .upload-zone:hover {
+            background: #eef1ff;
+            border-color: #764ba2;
+        }
+        
+        .upload-zone.dragging {
+            background: #e0e7ff;
+            border-color: #4c1d95;
+        }
+        
+        .upload-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+        
+        .upload-zone h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.5em;
+        }
+        
+        .upload-zone p {
+            color: #666;
+        }
+        
+        #fileInput {
+            display: none;
+        }
+        
+        .settings {
+            background: #f8f9ff;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .settings h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        
+        .setting-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .setting-item {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .setting-item label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        .setting-item input, .setting-item select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e7ff;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .setting-item input:focus, .setting-item select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .image-list {
+            margin-bottom: 30px;
+        }
+        
+        .image-list h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+        }
+        
+        .image-item {
+            background: #f8f9ff;
+            border-radius: 10px;
+            padding: 10px;
+            text-align: center;
+            position: relative;
+            transition: transform 0.3s;
+        }
+        
+        .image-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .image-item img {
+            max-width: 100%;
+            max-height: 100px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .image-item .name {
+            font-size: 12px;
+            color: #666;
+            word-break: break-all;
+        }
+        
+        .image-item .remove {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            transition: background 0.3s;
+        }
+        
+        .image-item .remove:hover {
+            background: #dc2626;
+        }
+        
+        .preview-section {
+            margin-bottom: 30px;
+        }
+        
+        .preview-section h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+        
+        #atlasPreview {
+            border: 2px solid #e0e7ff;
+            border-radius: 10px;
+            max-width: 100%;
+            background: #f8f9ff;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 15px 40px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            color: white;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(245, 87, 108, 0.4);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 GDX Texture Packer</h1>
+            <p>将多个图片打包成图集，导出 LibGDX Atlas 格式</p>
+        </div>
+        
+        <div class="main-content">
+            <div class="upload-zone" id="uploadZone">
+                <div class="upload-icon">📁</div>
+                <h3>拖拽图片到这里</h3>
+                <p>或点击选择图片文件（支持 PNG, JPG, GIF）</p>
+                <input type="file" id="fileInput" multiple accept="image/*">
+            </div>
+            
+            <div class="settings">
+                <h3>⚙️ 打包设置</h3>
+                <div class="setting-row">
+                    <div class="setting-item">
+                        <label for="atlasName">图集名称:</label>
+                        <input type="text" id="atlasName" value="pack" placeholder="pack">
+                    </div>
+                    <div class="setting-item">
+                        <label for="maxWidth">最大宽度:</label>
+                        <input type="number" id="maxWidth" value="2048" min="256" max="8192">
+                    </div>
+                    <div class="setting-item">
+                        <label for="maxHeight">最大高度:</label>
+                        <input type="number" id="maxHeight" value="2048" min="256" max="8192">
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-item">
+                        <label for="padding">图片间距:</label>
+                        <input type="number" id="padding" value="2" min="0" max="32">
+                    </div>
+                    <div class="setting-item">
+                        <label for="format">图片格式:</label>
+                        <select id="format">
+                            <option value="png">PNG</option>
+                            <option value="jpg">JPG</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="image-list" id="imageListSection" style="display: none;">
+                <h3>📸 已添加的图片 (<span id="imageCount">0</span>)</h3>
+                <div class="image-grid" id="imageGrid"></div>
+            </div>
+            
+            <div class="preview-section" id="previewSection" style="display: none;">
+                <h3>🖼️ 图集预览</h3>
+                <canvas id="atlasPreview"></canvas>
+            </div>
+            
+            <div class="button-group">
+                <button class="btn btn-primary" id="packBtn" disabled>打包图集</button>
+                <button class="btn btn-secondary" id="downloadBtn" disabled>下载图集文件</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+        const imageGrid = document.getElementById('imageGrid');
+        const imageListSection = document.getElementById('imageListSection');
+        const imageCount = document.getElementById('imageCount');
+        const packBtn = document.getElementById('packBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const atlasPreview = document.getElementById('atlasPreview');
+        const previewSection = document.getElementById('previewSection');
+        const ctx = atlasPreview.getContext('2d');
+        
+        let images = [];
+        let packedAtlas = null;
+        
+        // 上传区域点击事件
+        uploadZone.addEventListener('click', () => fileInput.click());
+        
+        // 文件选择事件
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+        
+        // 拖拽事件
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragging');
+        });
+        
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragging');
+        });
+        
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragging');
+            handleFiles(e.dataTransfer.files);
+        });
+        
+        // 处理文件
+        function handleFiles(files) {
+            Array.from(files).forEach(file => {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            images.push({
+                                name: file.name.replace(/\.[^/.]+$/, ""),
+                                img: img,
+                                width: img.width,
+                                height: img.height
+                            });
+                            updateImageList();
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+        
+        // 更新图片列表
+        function updateImageList() {
+            imageGrid.innerHTML = '';
+            imageCount.textContent = images.length;
+            
+            if (images.length > 0) {
+                imageListSection.style.display = 'block';
+                packBtn.disabled = false;
+                
+                images.forEach((imgData, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'image-item';
+                    div.innerHTML = `
+                        <button class="remove" onclick="removeImage(${index})">×</button>
+                        <img src="${imgData.img.src}" alt="${imgData.name}">
+                        <div class="name">${imgData.name}</div>
+                    `;
+                    imageGrid.appendChild(div);
+                });
+            } else {
+                imageListSection.style.display = 'none';
+                packBtn.disabled = true;
+            }
+        }
+        
+        // 删除图片
+        window.removeImage = function(index) {
+            images.splice(index, 1);
+            updateImageList();
+            previewSection.style.display = 'none';
+            downloadBtn.disabled = true;
+        };
+        
+        // 打包图集
+        packBtn.addEventListener('click', () => {
+            const maxWidth = parseInt(document.getElementById('maxWidth').value);
+            const maxHeight = parseInt(document.getElementById('maxHeight').value);
+            const padding = parseInt(document.getElementById('padding').value);
+            
+            packedAtlas = packTextures(images, maxWidth, maxHeight, padding);
+            
+            if (packedAtlas) {
+                drawAtlas(packedAtlas);
+                previewSection.style.display = 'block';
+                downloadBtn.disabled = false;
+            } else {
+                alert('打包失败！请尝试增加最大宽度或高度。');
+            }
+        });
+        
+        // 简单的矩形打包算法
+        function packTextures(images, maxWidth, maxHeight, padding) {
+            const sorted = [...images].sort((a, b) => Math.max(b.width, b.height) - Math.max(a.width, a.height));
+            const regions = [];
+            let currentX = padding;
+            let currentY = padding;
+            let rowHeight = 0;
+            let atlasWidth = 0;
+            let atlasHeight = 0;
+            
+            for (const imgData of sorted) {
+                const w = imgData.width + padding * 2;
+                const h = imgData.height + padding * 2;
+                
+                if (currentX + w > maxWidth) {
+                    currentX = padding;
+                    currentY += rowHeight;
+                    rowHeight = 0;
+                }
+                
+                if (currentY + h > maxHeight) {
+                    return null;
+                }
+                
+                regions.push({
+                    ...imgData,
+                    x: currentX,
+                    y: currentY,
+                    packedWidth: w,
+                    packedHeight: h
+                });
+                
+                atlasWidth = Math.max(atlasWidth, currentX + w);
+                atlasHeight = Math.max(atlasHeight, currentY + h);
+                rowHeight = Math.max(rowHeight, h);
+                currentX += w;
+            }
+            
+            return {
+                width: atlasWidth,
+                height: atlasHeight,
+                regions: regions
+            };
+        }
+        
+        // 绘制图集
+        function drawAtlas(atlas) {
+            atlasPreview.width = atlas.width;
+            atlasPreview.height = atlas.height;
+            ctx.clearRect(0, 0, atlas.width, atlas.height);
+            
+            atlas.regions.forEach(region => {
+                ctx.drawImage(region.img, region.x, region.y, region.width, region.height);
+            });
+        }
+        
+        // 下载文件
+        downloadBtn.addEventListener('click', () => {
+            const atlasName = document.getElementById('atlasName').value || 'pack';
+            const format = document.getElementById('format').value;
+            
+            // 生成 .atlas 文件
+            const atlasContent = generateAtlasFile(atlasName, packedAtlas);
+            downloadFile(`${atlasName}.atlas`, atlasContent);
+            
+            // 下载图集图片
+            atlasPreview.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${atlasName}.${format}`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }, `image/${format}`);
+        });
+        
+        // 生成 LibGDX Atlas 文件格式
+        function generateAtlasFile(name, atlas) {
+            const format = document.getElementById('format').value;
+            let content = `\n${name}.${format}\n`;
+            content += `size: ${atlas.width},${atlas.height}\n`;
+            content += `format: RGBA8888\n`;
+            content += `filter: Linear,Linear\n`;
+            content += `repeat: none\n`;
+            
+            atlas.regions.forEach(region => {
+                content += `${region.name}\n`;
+                content += `  rotate: false\n`;
+                content += `  xy: ${region.x}, ${region.y}\n`;
+                content += `  size: ${region.width}, ${region.height}\n`;
+                content += `  orig: ${region.width}, ${region.height}\n`;
+                content += `  offset: 0, 0\n`;
+                content += `  index: -1\n`;
+            });
+            
+            return content;
+        }
+        
+        // 下载文本文件
+        function downloadFile(filename, content) {
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
