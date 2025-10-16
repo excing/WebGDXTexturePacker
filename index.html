@@ -204,6 +204,33 @@
             margin-bottom: 15px;
         }
         
+        .stats {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .stat-item {
+            flex: 1;
+            min-width: 150px;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
         #atlasPreview {
             border: 2px solid #e0e7ff;
             border-radius: 10px;
@@ -252,10 +279,13 @@
             cursor: not-allowed;
         }
         
-        .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: #999;
+        .algorithm-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin-top: 10px;
         }
     </style>
 </head>
@@ -264,6 +294,7 @@
         <div class="header">
             <h1>🎮 GDX Texture Packer</h1>
             <p>将多个图片打包成图集，导出 LibGDX Atlas 格式</p>
+            <div class="algorithm-badge">⚡ MaxRects 算法 - 高效空间利用</div>
         </div>
         
         <div class="main-content">
@@ -302,6 +333,13 @@
                             <option value="jpg">JPG</option>
                         </select>
                     </div>
+                    <div class="setting-item">
+                        <label for="allowRotation">允许旋转:</label>
+                        <select id="allowRotation">
+                            <option value="false">否</option>
+                            <option value="true">是</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             
@@ -312,6 +350,20 @@
             
             <div class="preview-section" id="previewSection" style="display: none;">
                 <h3>🖼️ 图集预览</h3>
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-label">图集尺寸</div>
+                        <div class="stat-value" id="atlasSize">-</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">空间利用率</div>
+                        <div class="stat-value" id="efficiency">-</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">已打包图片</div>
+                        <div class="stat-value" id="packedCount">-</div>
+                    </div>
+                </div>
                 <canvas id="atlasPreview"></canvas>
             </div>
             
@@ -323,6 +375,180 @@
     </div>
 
     <script>
+        // MaxRects Bin Packing 算法实现
+        class MaxRectsPacker {
+            constructor(width, height, padding = 0, allowRotation = false) {
+                this.width = width;
+                this.height = height;
+                this.padding = padding;
+                this.allowRotation = allowRotation;
+                this.freeRectangles = [{x: 0, y: 0, width: width, height: height}];
+                this.usedRectangles = [];
+            }
+
+            insert(rectWidth, rectHeight, data) {
+                const rect = this.findPositionForNewNode(rectWidth, rectHeight);
+                
+                if (rect.height === 0) {
+                    return null;
+                }
+
+                let numRectanglesToProcess = this.freeRectangles.length;
+                for (let i = 0; i < numRectanglesToProcess; i++) {
+                    if (this.splitFreeNode(this.freeRectangles[i], rect)) {
+                        this.freeRectangles.splice(i, 1);
+                        numRectanglesToProcess--;
+                        i--;
+                    }
+                }
+
+                this.pruneFreeList();
+                
+                const usedRect = {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                    rotated: rect.rotated,
+                    data: data
+                };
+                
+                this.usedRectangles.push(usedRect);
+                return usedRect;
+            }
+
+            findPositionForNewNode(width, height) {
+                let bestNode = {x: 0, y: 0, width: 0, height: 0, rotated: false};
+                let bestShortSideFit = Number.MAX_VALUE;
+                let bestLongSideFit = Number.MAX_VALUE;
+
+                for (let i = 0; i < this.freeRectangles.length; i++) {
+                    const freeRect = this.freeRectangles[i];
+                    
+                    // 尝试正常放置
+                    if (freeRect.width >= width + this.padding && freeRect.height >= height + this.padding) {
+                        const leftoverHoriz = Math.abs(freeRect.width - width - this.padding);
+                        const leftoverVert = Math.abs(freeRect.height - height - this.padding);
+                        const shortSideFit = Math.min(leftoverHoriz, leftoverVert);
+                        const longSideFit = Math.max(leftoverHoriz, leftoverVert);
+
+                        if (shortSideFit < bestShortSideFit || 
+                            (shortSideFit === bestShortSideFit && longSideFit < bestLongSideFit)) {
+                            bestNode.x = freeRect.x;
+                            bestNode.y = freeRect.y;
+                            bestNode.width = width;
+                            bestNode.height = height;
+                            bestNode.rotated = false;
+                            bestShortSideFit = shortSideFit;
+                            bestLongSideFit = longSideFit;
+                        }
+                    }
+
+                    // 尝试旋转放置
+                    if (this.allowRotation && 
+                        freeRect.width >= height + this.padding && 
+                        freeRect.height >= width + this.padding) {
+                        const leftoverHoriz = Math.abs(freeRect.width - height - this.padding);
+                        const leftoverVert = Math.abs(freeRect.height - width - this.padding);
+                        const shortSideFit = Math.min(leftoverHoriz, leftoverVert);
+                        const longSideFit = Math.max(leftoverHoriz, leftoverVert);
+
+                        if (shortSideFit < bestShortSideFit || 
+                            (shortSideFit === bestShortSideFit && longSideFit < bestLongSideFit)) {
+                            bestNode.x = freeRect.x;
+                            bestNode.y = freeRect.y;
+                            bestNode.width = height;
+                            bestNode.height = width;
+                            bestNode.rotated = true;
+                            bestShortSideFit = shortSideFit;
+                            bestLongSideFit = longSideFit;
+                        }
+                    }
+                }
+
+                return bestNode;
+            }
+
+            splitFreeNode(freeNode, usedNode) {
+                // 测试是否与使用的节点相交
+                if (usedNode.x >= freeNode.x + freeNode.width ||
+                    usedNode.x + usedNode.width + this.padding <= freeNode.x ||
+                    usedNode.y >= freeNode.y + freeNode.height ||
+                    usedNode.y + usedNode.height + this.padding <= freeNode.y) {
+                    return false;
+                }
+
+                if (usedNode.x < freeNode.x + freeNode.width && 
+                    usedNode.x + usedNode.width + this.padding > freeNode.x) {
+                    // 新节点在使用节点的顶部
+                    if (usedNode.y > freeNode.y && usedNode.y < freeNode.y + freeNode.height) {
+                        const newNode = {...freeNode};
+                        newNode.height = usedNode.y - newNode.y;
+                        this.freeRectangles.push(newNode);
+                    }
+
+                    // 新节点在使用节点的底部
+                    if (usedNode.y + usedNode.height + this.padding < freeNode.y + freeNode.height) {
+                        const newNode = {...freeNode};
+                        newNode.y = usedNode.y + usedNode.height + this.padding;
+                        newNode.height = freeNode.y + freeNode.height - (usedNode.y + usedNode.height + this.padding);
+                        this.freeRectangles.push(newNode);
+                    }
+                }
+
+                if (usedNode.y < freeNode.y + freeNode.height && 
+                    usedNode.y + usedNode.height + this.padding > freeNode.y) {
+                    // 新节点在使用节点的左侧
+                    if (usedNode.x > freeNode.x && usedNode.x < freeNode.x + freeNode.width) {
+                        const newNode = {...freeNode};
+                        newNode.width = usedNode.x - newNode.x;
+                        this.freeRectangles.push(newNode);
+                    }
+
+                    // 新节点在使用节点的右侧
+                    if (usedNode.x + usedNode.width + this.padding < freeNode.x + freeNode.width) {
+                        const newNode = {...freeNode};
+                        newNode.x = usedNode.x + usedNode.width + this.padding;
+                        newNode.width = freeNode.x + freeNode.width - (usedNode.x + usedNode.width + this.padding);
+                        this.freeRectangles.push(newNode);
+                    }
+                }
+
+                return true;
+            }
+
+            pruneFreeList() {
+                for (let i = 0; i < this.freeRectangles.length; i++) {
+                    for (let j = i + 1; j < this.freeRectangles.length; j++) {
+                        if (this.isContainedIn(this.freeRectangles[i], this.freeRectangles[j])) {
+                            this.freeRectangles.splice(i, 1);
+                            i--;
+                            break;
+                        }
+                        if (this.isContainedIn(this.freeRectangles[j], this.freeRectangles[i])) {
+                            this.freeRectangles.splice(j, 1);
+                            j--;
+                        }
+                    }
+                }
+            }
+
+            isContainedIn(a, b) {
+                return a.x >= b.x && a.y >= b.y &&
+                       a.x + a.width <= b.x + b.width &&
+                       a.y + a.height <= b.y + b.height;
+            }
+
+            getOccupancy() {
+                let usedArea = 0;
+                for (let rect of this.usedRectangles) {
+                    usedArea += rect.width * rect.height;
+                }
+                return usedArea / (this.width * this.height);
+            }
+        }
+
+        // UI 代码
         const uploadZone = document.getElementById('uploadZone');
         const fileInput = document.getElementById('fileInput');
         const imageGrid = document.getElementById('imageGrid');
@@ -337,13 +563,9 @@
         let images = [];
         let packedAtlas = null;
         
-        // 上传区域点击事件
         uploadZone.addEventListener('click', () => fileInput.click());
-        
-        // 文件选择事件
         fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
         
-        // 拖拽事件
         uploadZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadZone.classList.add('dragging');
@@ -359,7 +581,6 @@
             handleFiles(e.dataTransfer.files);
         });
         
-        // 处理文件
         function handleFiles(files) {
             Array.from(files).forEach(file => {
                 if (file.type.startsWith('image/')) {
@@ -382,7 +603,6 @@
             });
         }
         
-        // 更新图片列表
         function updateImageList() {
             imageGrid.innerHTML = '';
             imageCount.textContent = images.length;
@@ -407,7 +627,6 @@
             }
         }
         
-        // 删除图片
         window.removeImage = function(index) {
             images.splice(index, 1);
             updateImageList();
@@ -415,16 +634,17 @@
             downloadBtn.disabled = true;
         };
         
-        // 打包图集
         packBtn.addEventListener('click', () => {
             const maxWidth = parseInt(document.getElementById('maxWidth').value);
             const maxHeight = parseInt(document.getElementById('maxHeight').value);
             const padding = parseInt(document.getElementById('padding').value);
+            const allowRotation = document.getElementById('allowRotation').value === 'true';
             
-            packedAtlas = packTextures(images, maxWidth, maxHeight, padding);
+            packedAtlas = packTextures(images, maxWidth, maxHeight, padding, allowRotation);
             
             if (packedAtlas) {
                 drawAtlas(packedAtlas);
+                updateStats(packedAtlas);
                 previewSection.style.display = 'block';
                 downloadBtn.disabled = false;
             } else {
@@ -432,72 +652,91 @@
             }
         });
         
-        // 简单的矩形打包算法
-        function packTextures(images, maxWidth, maxHeight, padding) {
-            const sorted = [...images].sort((a, b) => Math.max(b.width, b.height) - Math.max(a.width, a.height));
+        function packTextures(images, maxWidth, maxHeight, padding, allowRotation) {
+            // 按面积排序（从大到小）
+            const sorted = [...images].sort((a, b) => (b.width * b.height) - (a.width * a.height));
+            
+            const packer = new MaxRectsPacker(maxWidth, maxHeight, padding, allowRotation);
             const regions = [];
-            let currentX = padding;
-            let currentY = padding;
-            let rowHeight = 0;
-            let atlasWidth = 0;
-            let atlasHeight = 0;
             
             for (const imgData of sorted) {
-                const w = imgData.width + padding * 2;
-                const h = imgData.height + padding * 2;
+                const result = packer.insert(imgData.width, imgData.height, imgData);
                 
-                if (currentX + w > maxWidth) {
-                    currentX = padding;
-                    currentY += rowHeight;
-                    rowHeight = 0;
-                }
-                
-                if (currentY + h > maxHeight) {
+                if (!result) {
+                    console.warn(`无法打包图片: ${imgData.name}`);
                     return null;
                 }
                 
                 regions.push({
                     ...imgData,
-                    x: currentX,
-                    y: currentY,
-                    packedWidth: w,
-                    packedHeight: h
+                    x: result.x,
+                    y: result.y,
+                    rotated: result.rotated,
+                    packedWidth: result.width,
+                    packedHeight: result.height
                 });
-                
-                atlasWidth = Math.max(atlasWidth, currentX + w);
-                atlasHeight = Math.max(atlasHeight, currentY + h);
-                rowHeight = Math.max(rowHeight, h);
-                currentX += w;
+            }
+            
+            // 计算实际使用的尺寸
+            let actualWidth = 0;
+            let actualHeight = 0;
+            for (const region of regions) {
+                actualWidth = Math.max(actualWidth, region.x + region.packedWidth + padding);
+                actualHeight = Math.max(actualHeight, region.y + region.packedHeight + padding);
             }
             
             return {
-                width: atlasWidth,
-                height: atlasHeight,
-                regions: regions
+                width: actualWidth,
+                height: actualHeight,
+                regions: regions,
+                occupancy: packer.getOccupancy()
             };
         }
         
-        // 绘制图集
         function drawAtlas(atlas) {
             atlasPreview.width = atlas.width;
             atlasPreview.height = atlas.height;
             ctx.clearRect(0, 0, atlas.width, atlas.height);
             
+            // 绘制背景网格
+            ctx.fillStyle = '#f0f0f0';
+            ctx.fillRect(0, 0, atlas.width, atlas.height);
+            
             atlas.regions.forEach(region => {
-                ctx.drawImage(region.img, region.x, region.y, region.width, region.height);
+                ctx.save();
+                
+                if (region.rotated) {
+                    // 旋转绘制
+                    ctx.translate(region.x + region.packedWidth, region.y);
+                    ctx.rotate(Math.PI / 2);
+                    ctx.drawImage(region.img, 0, 0, region.height, region.width);
+                } else {
+                    // 正常绘制
+                    ctx.drawImage(region.img, region.x, region.y, region.width, region.height);
+                }
+                
+                ctx.restore();
+                
+                // 绘制边框
+                ctx.strokeStyle = '#667eea';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(region.x, region.y, region.packedWidth, region.packedHeight);
             });
         }
         
-        // 下载文件
+        function updateStats(atlas) {
+            document.getElementById('atlasSize').textContent = `${atlas.width} × ${atlas.height}`;
+            document.getElementById('efficiency').textContent = `${(atlas.occupancy * 100).toFixed(1)}%`;
+            document.getElementById('packedCount').textContent = atlas.regions.length;
+        }
+        
         downloadBtn.addEventListener('click', () => {
             const atlasName = document.getElementById('atlasName').value || 'pack';
             const format = document.getElementById('format').value;
             
-            // 生成 .atlas 文件
             const atlasContent = generateAtlasFile(atlasName, packedAtlas);
             downloadFile(`${atlasName}.atlas`, atlasContent);
             
-            // 下载图集图片
             atlasPreview.toBlob((blob) => {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -508,7 +747,6 @@
             }, `image/${format}`);
         });
         
-        // 生成 LibGDX Atlas 文件格式
         function generateAtlasFile(name, atlas) {
             const format = document.getElementById('format').value;
             let content = `\n${name}.${format}\n`;
@@ -519,9 +757,9 @@
             
             atlas.regions.forEach(region => {
                 content += `${region.name}\n`;
-                content += `  rotate: false\n`;
+                content += `  rotate: ${region.rotated ? '90' : 'false'}\n`;
                 content += `  xy: ${region.x}, ${region.y}\n`;
-                content += `  size: ${region.width}, ${region.height}\n`;
+                content += `  size: ${region.rotated ? region.height : region.width}, ${region.rotated ? region.width : region.height}\n`;
                 content += `  orig: ${region.width}, ${region.height}\n`;
                 content += `  offset: 0, 0\n`;
                 content += `  index: -1\n`;
@@ -530,7 +768,6 @@
             return content;
         }
         
-        // 下载文本文件
         function downloadFile(filename, content) {
             const blob = new Blob([content], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
