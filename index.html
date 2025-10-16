@@ -432,49 +432,151 @@
             }
         });
         
-        // 简单的矩形打包算法
+        // MaxRects 离线打包算法（Best Short Side Fit），并输出正方形图集
         function packTextures(images, maxWidth, maxHeight, padding) {
-            const sorted = [...images].sort((a, b) => Math.max(b.width, b.height) - Math.max(a.width, a.height));
-            const regions = [];
-            let currentX = padding;
-            let currentY = padding;
-            let rowHeight = 0;
-            let atlasWidth = 0;
-            let atlasHeight = 0;
-            
-            for (const imgData of sorted) {
-                const w = imgData.width + padding * 2;
-                const h = imgData.height + padding * 2;
-                
-                if (currentX + w > maxWidth) {
-                    currentX = padding;
-                    currentY += rowHeight;
-                    rowHeight = 0;
+            const maxSide = Math.min(maxWidth, maxHeight);
+            if (!images || images.length === 0) return null;
+
+            // 计算搜索下界（最小可能边长）
+            const pad2 = padding * 2;
+            const maxDim = images.reduce((m, im) => Math.max(m, im.width + pad2, im.height + pad2), 0);
+            const totalArea = images.reduce((s, im) => s + (im.width + pad2) * (im.height + pad2), 0);
+            let low = Math.max(maxDim, Math.ceil(Math.sqrt(totalArea)));
+            if (low > maxSide) return null;
+
+            // 按面积降序以提升命中率
+            const items = images.map((im, idx) => ({
+                index: idx,
+                name: im.name,
+                img: im.img,
+                w: im.width,
+                h: im.height
+            })).sort((a, b) => (b.w * b.h) - (a.w * a.h));
+
+            // 尝试在给定边长内打包
+            function tryPack(side) {
+                const freeRects = [{ x: 0, y: 0, w: side, h: side }];
+                const placed = [];
+
+                function rectsIntersect(a, b) {
+                    return !(b.x >= a.x + a.w || b.x + b.w <= a.x || b.y >= a.y + a.h || b.y + b.h <= a.y);
                 }
-                
-                if (currentY + h > maxHeight) {
-                    return null;
+
+                function splitFreeNode(free, used, outList) {
+                    if (!rectsIntersect(free, used)) return false;
+
+                    // 左侧
+                    if (used.x > free.x && used.x < free.x + free.w) {
+                        outList.push({ x: free.x, y: free.y, w: used.x - free.x, h: free.h });
+                    }
+                    // 右侧
+                    if (used.x + used.w < free.x + free.w) {
+                        outList.push({ x: used.x + used.w, y: free.y, w: (free.x + free.w) - (used.x + used.w), h: free.h });
+                    }
+                    // 上方
+                    if (used.y > free.y && used.y < free.y + free.h) {
+                        outList.push({ x: free.x, y: free.y, w: free.w, h: used.y - free.y });
+                    }
+                    // 下方
+                    if (used.y + used.h < free.y + free.h) {
+                        outList.push({ x: free.x, y: used.y + used.h, w: free.w, h: (free.y + free.h) - (used.y + used.h) });
+                    }
+                    return true;
                 }
-                
-                regions.push({
-                    ...imgData,
-                    x: currentX,
-                    y: currentY,
-                    packedWidth: w,
-                    packedHeight: h
-                });
-                
-                atlasWidth = Math.max(atlasWidth, currentX + w);
-                atlasHeight = Math.max(atlasHeight, currentY + h);
-                rowHeight = Math.max(rowHeight, h);
-                currentX += w;
+
+                function pruneFreeList(list) {
+                    for (let i = 0; i < list.length; i++) {
+                        const a = list[i];
+                        if (a.w <= 0 || a.h <= 0) { list.splice(i, 1); i--; continue; }
+                        for (let j = i + 1; j < list.length; j++) {
+                            const b = list[j];
+                            if (b.w <= 0 || b.h <= 0) { list.splice(j, 1); j--; continue; }
+                            if (a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h) {
+                                list.splice(i, 1); i--; break;
+                            }
+                            if (b.x >= a.x && b.y >= a.y && b.x + b.w <= a.x + a.w && b.y + b.h <= a.y + a.h) {
+                                list.splice(j, 1); j--; continue;
+                            }
+                        }
+                    }
+                }
+
+                function findPositionForNode(w, h) {
+                    let bestNode = null;
+                    let bestShortSide = Infinity;
+                    let bestLongSide = Infinity;
+                    for (let i = 0; i < freeRects.length; i++) {
+                        const fr = freeRects[i];
+                        if (w <= fr.w && h <= fr.h) {
+                            const leftoverX = fr.w - w;
+                            const leftoverY = fr.h - h;
+                            const shortSide = Math.min(leftoverX, leftoverY);
+                            const longSide = Math.max(leftoverX, leftoverY);
+                            const curBestY = bestNode ? bestNode.y : Infinity;
+                            const curBestX = bestNode ? bestNode.x : Infinity;
+                            if (
+                                shortSide < bestShortSide ||
+                                (shortSide === bestShortSide && longSide < bestLongSide) ||
+                                (shortSide === bestShortSide && longSide === bestLongSide && (fr.y < curBestY || (fr.y === curBestY && fr.x < curBestX)))
+                            ) {
+                                bestNode = { x: fr.x, y: fr.y, w, h };
+                                bestShortSide = shortSide;
+                                bestLongSide = longSide;
+                            }
+                        }
+                    }
+                    return bestNode;
+                }
+
+                for (const it of items) {
+                    const reqW = it.w + pad2;
+                    const reqH = it.h + pad2;
+                    const node = findPositionForNode(reqW, reqH);
+                    if (!node) return null;
+
+                    // 占用并分割自由矩形
+                    const newFree = [];
+                    for (let i = 0; i < freeRects.length; i++) {
+                        const fr = freeRects[i];
+                        if (!rectsIntersect(fr, node)) {
+                            newFree.push(fr);
+                        } else {
+                            splitFreeNode(fr, node, newFree);
+                        }
+                    }
+                    freeRects.length = 0;
+                    Array.prototype.push.apply(freeRects, newFree);
+                    pruneFreeList(freeRects);
+
+                    placed.push({
+                        name: it.name,
+                        img: it.img,
+                        x: node.x + padding,
+                        y: node.y + padding,
+                        width: it.w,
+                        height: it.h,
+                        packedWidth: reqW,
+                        packedHeight: reqH
+                    });
+                }
+
+                return { width: side, height: side, regions: placed };
             }
-            
-            return {
-                width: atlasWidth,
-                height: atlasHeight,
-                regions: regions
-            };
+
+            // 二分搜索最小可行正方形边长
+            let best = null;
+            let left = low, right = maxSide;
+            while (left <= right) {
+                const mid = Math.floor((left + right) / 2);
+                const res = tryPack(mid);
+                if (res) {
+                    best = res;
+                    right = mid - 1;
+                } else {
+                    left = mid + 1;
+                }
+            }
+            return best;
         }
         
         // 绘制图集
